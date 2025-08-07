@@ -200,7 +200,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=RKOCPXIB
 
 [Document10]
 DocumentPath=LC-PcbLib.PcbLib
@@ -217,7 +217,7 @@ ClassGenCCAutoRoomEnabled=0
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=MHJOPUMG
 
 [Document11]
 DocumentPath=Light-Controller.PcbDoc
