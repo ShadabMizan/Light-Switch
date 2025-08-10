@@ -271,62 +271,66 @@ GenerateClassCluster=0
 DocumentUniqueId=ELEIOYNI
 
 [GeneratedDocument1]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller-RoundHoles.TXT
+DocumentPath=Project Outputs for Light-Controller\Design Rule Check - Light-Controller.html
 DItemRevisionGUID=
 
 [GeneratedDocument2]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller-SlotHoles.TXT
+DocumentPath=Project Outputs for Light-Controller\Light-Controller-RoundHoles.TXT
 DItemRevisionGUID=
 
 [GeneratedDocument3]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.DRR
+DocumentPath=Project Outputs for Light-Controller\Light-Controller-SlotHoles.TXT
 DItemRevisionGUID=
 
 [GeneratedDocument4]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.EXTREP
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.DRR
 DItemRevisionGUID=
 
 [GeneratedDocument5]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBL
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.EXTREP
 DItemRevisionGUID=
 
 [GeneratedDocument6]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBO
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBL
 DItemRevisionGUID=
 
 [GeneratedDocument7]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBP
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBO
 DItemRevisionGUID=
 
 [GeneratedDocument8]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBS
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBP
 DItemRevisionGUID=
 
 [GeneratedDocument9]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GM
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GBS
 DItemRevisionGUID=
 
 [GeneratedDocument10]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTL
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GM
 DItemRevisionGUID=
 
 [GeneratedDocument11]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTO
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTL
 DItemRevisionGUID=
 
 [GeneratedDocument12]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTP
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTO
 DItemRevisionGUID=
 
 [GeneratedDocument13]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTS
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTP
 DItemRevisionGUID=
 
 [GeneratedDocument14]
-DocumentPath=Project Outputs for Light-Controller\Light-Controller.LDP
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.GTS
 DItemRevisionGUID=
 
 [GeneratedDocument15]
+DocumentPath=Project Outputs for Light-Controller\Light-Controller.LDP
+DItemRevisionGUID=
+
+[GeneratedDocument16]
 DocumentPath=Project Outputs for Light-Controller\Light-Controller.REP
 DItemRevisionGUID=
 
