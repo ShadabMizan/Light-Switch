@@ -12,11 +12,15 @@
 
 #define DIAL_ADC_CHANNEL    ADC1_CHANNEL_4
 
-#define LED_BLINK_MS        100
+#define LED_BLINK_MS        75
 
 typedef enum {
     GREEN_LED,
     RED_LED
 } Ext_LED_t;
+
+void Externals_Init(void);
+void LED_Blink(Ext_LED_t led, uint8_t num_blinks);
+void Relay_Toggle(void);
 
 #endif
