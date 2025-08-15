@@ -8,31 +8,41 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-/* Public Resources */
-float power_delivered = 1.0f;
+#include "freertos/queue.h"
 
 /* Private Resources */
+static const char *TAG = "EXTERNALS";
+
+static float power_delivered = 1.0f;
+static volatile TickType_t last_zc_tick = 0;
+static int line_status = 0;
+
 static adc_oneshot_unit_handle_t adc1_handle;
 
 static TaskHandle_t dial_reader_task;
+static TaskHandle_t line_monitor_task;
+static TaskHandle_t led_blinker_task;
+
+static QueueHandle_t led_blinker_queue;
 
 static volatile Triac_Timer_State_t next_triac_timer_state = IDLE;
 static gptimer_handle_t triac_timer = NULL;
 
-static inline void led_init(void);
-static inline void relay_init(void);
-static inline void line_detect_init(void);
-static inline void triac_drive_init(void);
-static inline void dial_init(void);
+static void led_init(void);
+static void relay_init(void);
+static void line_detect_init(void);
+static void triac_drive_init(void);
+static void dial_init(void);
 
-static inline void triac_pulse_gate(void);
+static inline void IRAM_ATTR triac_pulse_gate(void);
 static inline void start_zc_delay_timer(uint32_t delay_us);
 
 static void IRAM_ATTR gpio_isr_handler(void *arg);
 static bool triac_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx);
 
 static void Dial_Reader(void *pvParameters);
+static void Line_Monitor(void *pvParameters);
+static void LED_Blinker(void *pvParamters);
 
 /* Public Functions */
 void Externals_Init(void) {
@@ -44,36 +54,39 @@ void Externals_Init(void) {
     triac_drive_init();
 }
 
-void LED_Blink(LED_t led, uint8_t num_blinks) {
-    gpio_num_t led_gpio = RED_LED;
-    switch (led) {
-        case RED_LED:
-            led_gpio = RED_LED;
-            break;
-        case GREEN_LED:
-            led_gpio = GREEN_LED;
-            break;
-    }
+void Blink_LED(LED_t led, uint8_t num_blinks) {
+    Blink_LED_Args_t args = {
+        .led = led,
+        .num_blinks = num_blinks
+    };
 
-    for (uint8_t i = 0; i < num_blinks; i++) {
-        gpio_set_level(led_gpio, 1);
-        vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
-        gpio_set_level(led_gpio, 0);
-        vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
-    }
+    xQueueSend(led_blinker_queue, &args, 0);
 }
 
-void Relay_Toggle(void) {
+void Toggle_Relay(void) {
     static uint8_t relay_state = 0;
 
     relay_state = !relay_state;
     gpio_set_level(RELAY_GPIO, relay_state);
+}
 
-    LED_Blink(GREEN_LED, 1);
+void Set_PowerDelivered(float percentage) {
+    percentage = MIN(percentage, 1);
+    percentage = MAX(percentage, 0);
+
+    power_delivered = percentage;
+}
+
+float Get_PowerDelivered(void) {
+    return power_delivered;
+}
+
+int Get_LineStatus(void) {
+    return line_status;
 }
 
 /* Tasks */
-void Dial_Reader(void *pvParameters) {    
+void Dial_Reader(void *pvParameters) {
     int adc_raw;
     int adc_raw_avg = 0;
     int last_adc_reading = 0;
@@ -82,7 +95,7 @@ void Dial_Reader(void *pvParameters) {
         for (int i = 0; i < DIAL_READER_NUM_ADC_SAMPLES; i++) {
             status = adc_oneshot_read(adc1_handle, DIAL_ADC_CHANNEL, &adc_raw);
             if (status != ESP_OK) {
-                printf("ADC Oneshot Read Error: %s\r\n", esp_err_to_name(status));
+                ESP_LOGD(TAG, "ADC Oneshot Read Error: %s", esp_err_to_name(status));
                 break;
             }
             adc_raw_avg += adc_raw;
@@ -90,13 +103,13 @@ void Dial_Reader(void *pvParameters) {
         adc_raw_avg /= DIAL_READER_NUM_ADC_SAMPLES;
         
         #if (DIAL_READER_PRINT_ADC_AVGS == 1)
-        printf("Raw ADC Average: %d\r\n", adc_raw_avg);
+        ESP_LOGI(TAG, "Raw ADC Average: %d", adc_raw_avg);
         #endif
 
         // Has the dial moved?
         if (adc_raw_avg + DIAL_MOVEMENT_THRESHOLD > last_adc_reading || adc_raw_avg - DIAL_MOVEMENT_THRESHOLD < last_adc_reading) {
             // Update the power delivered, which is normalized to between 0-1.
-            power_delivered = adc_raw_avg/4095.0f;
+            Set_PowerDelivered(adc_raw_avg/4095.0f);
         }
         last_adc_reading = adc_raw_avg;
         adc_raw_avg = 0;
@@ -107,12 +120,66 @@ void Dial_Reader(void *pvParameters) {
     (void)pvParameters;
 }
 
+void Line_Monitor(void *pvParamters) {
+    while (1) {
+        if (pdTICKS_TO_MS(xTaskGetTickCount() - last_zc_tick) > LINE_MONITOR_NO_ZC_DETECTED_THRESHOLD_MS) {
+            if (line_status != 0) {
+                // Change the line status to 0, or inactive
+                #if (LINE_MONITOR_PRINT_LINE_STATUS == 1)
+                ESP_LOGI(TAG, "Line is Inactive");
+                #endif
+                line_status = 0;
+                Blink_LED(GREEN_LED, 1);
+            }
+        } else {
+            if (line_status != 1) {
+                // Change line status to 1, or active
+                #if (LINE_MONITOR_PRINT_LINE_STATUS == 1)
+                ESP_LOGI(TAG, "Line is Active");
+                #endif
+                line_status = 1;
+                Blink_LED(RED_LED, 1);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(LINE_MONITOR_SLEEP_MS));
+    }
+    (void)pvParamters;
+}
+
+void LED_Blinker(void *pvParameters) {
+    Blink_LED_Args_t args;
+    while (1) {
+        xQueueReceive(led_blinker_queue, &args, portMAX_DELAY);
+
+        gpio_num_t led_gpio = LED_RED_GPIO;
+        switch (args.led) {
+            case RED_LED:
+                led_gpio = LED_RED_GPIO;
+                break;
+            case GREEN_LED:
+                led_gpio = LED_GREEN_GPIO;
+                break;
+        }
+
+        for (uint8_t i = 0; i < args.num_blinks; i++) {
+            gpio_set_level(led_gpio, 1);
+            vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+            gpio_set_level(led_gpio, 0);
+            vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+        }
+    }
+    (void)pvParameters;
+}
+
 /* Interrupts and Callbacks */
 void gpio_isr_handler(void *arg) {
-    if (power_delivered >= 0.999f) {
+    last_zc_tick = xTaskGetTickCountFromISR();
+
+    if (power_delivered >= 0.99f) {
         // Drive the Triac instantly
         triac_pulse_gate();
-    } else if (power_delivered <= 0.001f) {
+    } else if (power_delivered <= 0.01f) {
         // Don't drive the triac
     } else {
         // Ex.To deliver 60% power, we need to delay for 40% of the half ac period.
@@ -123,7 +190,6 @@ void gpio_isr_handler(void *arg) {
     (void)arg;
 }
 
-// TODO: Function is built on the assumption that the timer inputted will only ever be the triac_timer
 bool triac_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
     switch (next_triac_timer_state) {
         case ZC_DELAY_EXPIRED:
@@ -157,6 +223,21 @@ void led_init(void) {
         .pull_up_en = GPIO_PULLUP_DISABLE
     };
     ESP_ERROR_CHECK(gpio_config(&io_config));
+
+    led_blinker_queue = xQueueCreate(10, sizeof(Blink_LED_Args_t));
+    if (led_blinker_queue == NULL) {
+        ESP_LOGE(TAG, "LED Blinker queue create could not allocate required memory");
+    }
+
+    BaseType_t status = xTaskCreate(
+        LED_Blinker, "LED Blinker Task",
+        LED_BLINKER_STACK_DEPTH, 0,
+        LED_BLINKER_PRIORITY, &led_blinker_task
+    );
+    if (status != pdPASS) {
+        ESP_LOGE(TAG, "LED Blinker task create could not allocate required memory");
+    }
+    
 }
 
 void dial_init(void) {
@@ -177,7 +258,7 @@ void dial_init(void) {
         DIAL_READER_PRIORITY, &dial_reader_task
     );
     if (status != pdPASS) {
-        printf("Dial Reader Task Create Error: 0x%X\r\n", status);
+        ESP_LOGE(TAG, "Dial Reader task create could not allocated required memory");
     }
 }
 
@@ -194,18 +275,26 @@ void relay_init(void) {
 
 void line_detect_init(void) {
     gpio_config_t io_config = {
-        .intr_type = GPIO_INTR_LOW_LEVEL,   // Note: Or even use +/- edge if this isn't reliable
+        .intr_type = GPIO_INTR_NEGEDGE,
         .mode = GPIO_MODE_INPUT,
         .pin_bit_mask = (1ULL << LINE_DETECT_GPIO),
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .pull_up_en = GPIO_PULLUP_DISABLE
     };
     ESP_ERROR_CHECK(gpio_config(&io_config));
-
     
     // Calling GPIO install ISR here since I think this is the only ISR in the system
     ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_IRAM));
     ESP_ERROR_CHECK(gpio_isr_handler_add(LINE_DETECT_GPIO, gpio_isr_handler, 0));
+
+    BaseType_t status = xTaskCreate(
+        Line_Monitor, "Line Monitor Task",
+        LINE_MONITOR_STACK_DEPTH, 0,
+        LINE_MONITOR_PRIORITY, &line_monitor_task
+    );
+    if (status != pdPASS) {
+        ESP_LOGE(TAG, "Line Monitor task create could not allocated required memory");
+    }
 }
 
 void triac_drive_init(void) {
