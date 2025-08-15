@@ -1,9 +1,14 @@
 #include "Externals.h"
 #include "WebServer.h"
-#include "Credentials.h"
+#include "WiFiConfig.h"
 
 void app_main(void) {
     Externals_Init();
-    
-    BackEnd_Init(WIFI_SSID, WIFI_PASSWORD);
+
+    wifi_config_data_t config;
+    if (WiFiConfig_Load(&config) != ESP_OK) {
+        WiFiConfig_StartPortal();
+    } else {
+        BackEnd_Init(config.ssid, config.password);
+    }
 }

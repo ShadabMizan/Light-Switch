@@ -12,7 +12,6 @@
 /* Private Resources */
 static const char *TAG = "WEBSERVER";
 
-static httpd_handle_t sse_server = NULL;
 static httpd_req_t *sse_client = NULL;
 
 static esp_err_t serve_file(httpd_req_t *req);
