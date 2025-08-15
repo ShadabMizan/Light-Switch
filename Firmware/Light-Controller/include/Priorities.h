@@ -1,10 +1,10 @@
 #ifndef PRIORITIES_H
 #define PRIORITIES_H
 
+#define LED_BLINKER_PRIORITY    3
 
-#define TRIAC_DRIVER_PRIORTIY   2
+#define LINE_MONITOR_PRIORITY   2
 
 #define DIAL_READER_PRIORITY    1
-
 
 #endif
