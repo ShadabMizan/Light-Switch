@@ -1,7 +1,7 @@
 #include "WebServer.h"
 #include "Externals.h"
 
-#include "esp_https_server.h"
+#include "esp_http_server.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_event.h"
@@ -20,12 +20,16 @@ static esp_err_t api_set_power(httpd_req_t *req);
 static esp_err_t api_get_power(httpd_req_t *req);
 static esp_err_t api_get_line_status(httpd_req_t *req);
 
+static esp_err_t sse_handler(httpd_req_t *req);
+
+static void send_sse_update(const char* key, const char* value);
+
 static void start_webserver(void);
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
 /* Public Function */
-void BackEnd_Init(const char *ssid, const char *password) {
+void WebServer_Init(const char *ssid, const char *password) {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -86,10 +90,16 @@ void start_webserver(void) {
     if (httpd_start(&server, &config) == ESP_OK) {
         // Static files
         httpd_uri_t static_files = {
-            .uri = "/*",
+            .uri = "/",         // index.html
             .method = HTTP_GET,
             .handler = serve_file
         };
+        httpd_register_uri_handler(server, &static_files);
+
+        static_files.uri = "/style.css";
+        httpd_register_uri_handler(server, &static_files);
+
+        static_files.uri = "/script.js";
         httpd_register_uri_handler(server, &static_files);
 
         // API routes
@@ -120,6 +130,15 @@ void start_webserver(void) {
             .handler = api_get_line_status
         };
         httpd_register_uri_handler(server, &get_line_status);
+
+        // Events
+        httpd_uri_t events_uri = {
+            .uri      = "/events",
+            .method   = HTTP_GET,
+            .handler  = sse_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &events_uri);
     } else {
         ESP_LOGE(TAG, "HTTPD Start Failed");
         Blink_LED(RED_LED, 3);
@@ -129,8 +148,18 @@ void start_webserver(void) {
 /* HTTP Handlers */
 esp_err_t serve_file(httpd_req_t *req) {
     char filepath[128];
-    const char *filename = (strlen(req->uri) == 1) ? "/index.html" : req->uri;
-    snprintf(filepath, sizeof(filepath), "/spiffs%.120s", filename);
+
+    printf("File URI: %s\r\n", req->uri);
+
+    if (strcmp(req->uri, "/") == 0) {
+        sprintf(filepath, "/spiffs/index.html");
+    } else if (strcmp(req->uri, "/style.css") == 0) {
+        sprintf(filepath, "/spiffs/style.css");
+    } else if (strcmp(req->uri, "/script.js") == 0) {
+        sprintf(filepath, "/spiffs/script.js");
+    } else {
+        return ESP_FAIL;
+    }
 
     FILE *file = fopen(filepath, "r");
     if (!file) {
@@ -183,22 +212,53 @@ esp_err_t api_get_line_status(httpd_req_t *req) {
 }
 
 /* Server Sent Events */
-
-void sse_handler(httpd_req_t *req) {
+esp_err_t sse_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/event-stream");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
     sse_client = req;
 
-    while (1) {
-        // Keep connection open
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    // Initial handshake
+    const char* init_msg = "data: {\"connected\":true}\n\n";
+    httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
+
+    // Keep connection open
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(250));
+        if (req->handle == NULL) {  // client disconnected
+            sse_client = NULL;
+            break;
+        }
+    }
+
+    return ESP_OK;
+}
+
+void send_sse_update(const char* key, const char* value) {
+    if (!sse_client) return;
+
+    char buf[128];
+    int len = snprintf(buf, sizeof(buf), "data: {\"%s\":%s}\n\n", key, value);
+
+    if (httpd_resp_send_chunk(sse_client, buf, len) != ESP_OK) {
+        sse_client = NULL; // client disconnected
     }
 }
 
-void UpdatePowerDeliveredOnWeb(float percentage) {
-    if (!sse_client) return;
+void Update_PowerDelivered_OnWeb(float percentage) {
+    char val[32];
+    snprintf(val, sizeof(val), "%.3f", percentage);
+    send_sse_update("power_delivered", val);
+}
 
-    char buf[64];
-    int len = snprintf(buf, sizeof(buf), "data: %.3f\n\n", percentage);
-    httpd_resp_send_chunk(sse_client, buf, len);
+void Update_LineStatus_OnWeb(int status) {
+    char val[4];
+    snprintf(val, sizeof(val), "%d", status);
+    send_sse_update("line_status", val);
+}
+
+int IsClientConnected(void) {
+    return sse_client != NULL;
 }

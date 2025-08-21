@@ -1,5 +1,6 @@
 #include "Externals.h"
 #include "Priorities.h"
+#include "WebServer.h"
 
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -34,10 +35,10 @@ static void line_detect_init(void);
 static void triac_drive_init(void);
 static void dial_init(void);
 
-static inline void IRAM_ATTR triac_pulse_gate(void);
+static inline void triac_pulse_gate(void);
 static inline void start_zc_delay_timer(uint32_t delay_us);
 
-static void IRAM_ATTR gpio_isr_handler(void *arg);
+static void gpio_isr_handler(void *arg);
 static bool triac_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx);
 
 static void Dial_Reader(void *pvParameters);
@@ -110,6 +111,9 @@ void Dial_Reader(void *pvParameters) {
         if (adc_raw_avg + DIAL_MOVEMENT_THRESHOLD > last_adc_reading || adc_raw_avg - DIAL_MOVEMENT_THRESHOLD < last_adc_reading) {
             // Update the power delivered, which is normalized to between 0-1.
             Set_PowerDelivered(adc_raw_avg/4095.0f);
+            if (IsClientConnected()) {
+                Update_PowerDelivered_OnWeb(Get_PowerDelivered());  // Update on Web
+            }
         }
         last_adc_reading = adc_raw_avg;
         adc_raw_avg = 0;
@@ -121,6 +125,7 @@ void Dial_Reader(void *pvParameters) {
 }
 
 void Line_Monitor(void *pvParamters) {
+    vTaskDelay(pdMS_TO_TICKS(2000));
     while (1) {
         if (pdTICKS_TO_MS(xTaskGetTickCount() - last_zc_tick) > LINE_MONITOR_NO_ZC_DETECTED_THRESHOLD_MS) {
             if (line_status != 0) {
@@ -130,6 +135,10 @@ void Line_Monitor(void *pvParamters) {
                 #endif
                 line_status = 0;
                 Blink_LED(GREEN_LED, 1);
+
+                if (IsClientConnected()) {
+                    Update_LineStatus_OnWeb(Get_LineStatus());
+                }
             }
         } else {
             if (line_status != 1) {
@@ -139,6 +148,10 @@ void Line_Monitor(void *pvParamters) {
                 #endif
                 line_status = 1;
                 Blink_LED(RED_LED, 1);
+
+                if (IsClientConnected()) {
+                    Update_LineStatus_OnWeb(Get_LineStatus());
+                }
             }
         }
 
@@ -222,7 +235,7 @@ void led_init(void) {
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .pull_up_en = GPIO_PULLUP_DISABLE
     };
-    ESP_ERROR_CHECK(gpio_config(&io_config));
+    gpio_config(&io_config);
 
     led_blinker_queue = xQueueCreate(10, sizeof(Blink_LED_Args_t));
     if (led_blinker_queue == NULL) {
@@ -237,7 +250,6 @@ void led_init(void) {
     if (status != pdPASS) {
         ESP_LOGE(TAG, "LED Blinker task create could not allocate required memory");
     }
-    
 }
 
 void dial_init(void) {
@@ -284,7 +296,7 @@ void line_detect_init(void) {
     ESP_ERROR_CHECK(gpio_config(&io_config));
     
     // Calling GPIO install ISR here since I think this is the only ISR in the system
-    ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_IRAM));
+    ESP_ERROR_CHECK(gpio_install_isr_service(0));
     ESP_ERROR_CHECK(gpio_isr_handler_add(LINE_DETECT_GPIO, gpio_isr_handler, 0));
 
     BaseType_t status = xTaskCreate(
